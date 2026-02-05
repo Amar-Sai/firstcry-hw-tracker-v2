@@ -1,0 +1,57 @@
+name: Hot Wheels Monitor
+
+on:
+  schedule:
+    # Run every 2 minutes during peak hours (9 AM - 11 PM IST)
+    - cron: '*/2 3-17 * * *'  # 9 AM - 11 PM IST = 3:30 AM - 5:30 PM UTC
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Restore product database
+        uses: actions/cache@v3
+        with:
+          path: hotwheels_products.db
+          key: hotwheels-db-${{ github.run_number }}
+          restore-keys: |
+            hotwheels-db-
+      
+      - name: Run monitor (single scan)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python hotwheels_monitor.py --once
+      
+      - name: Commit database changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          if [[ -n $(git status -s hotwheels_products.db) ]]; then
+            git add hotwheels_products.db
+            git commit -m "Update product database - $(date +'%Y-%m-%d %H:%M:%S')"
+            git push
+          fi
